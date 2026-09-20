@@ -2788,6 +2788,9 @@ class TelegramAdapter(BasePlatformAdapter):
 
     def _register_handlers(self, app) -> None:
         """Register every PTB handler on ``app`` (initial connect and the transient-init rebuild)."""
+        if getattr(self, "text_only_mode", False) is True:
+            app.add_handler(TelegramMessageHandler(filters.ALL, self._handle_text_only_message))
+            return
         app.add_handler(TelegramMessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_text_message))
         app.add_handler(TelegramMessageHandler(filters.COMMAND, self._handle_command))
         app.add_handler(TelegramMessageHandler(
@@ -3459,6 +3462,42 @@ class TelegramAdapter(BasePlatformAdapter):
         if isinstance(tracked, set):
             tracked.add(task)
             task.add_done_callback(tracked.discard)
+
+    async def send_plain_text(
+        self, chat_id: str, content: str, *, reply_to: Optional[str] = None,
+        thread_id: Optional[str] = None,
+    ) -> SendResult:
+        """Text-only delivery for prechecked replies: no rich/media parsing or link previews."""
+        if not self._bot:
+            return SendResult(success=False, error="Not connected", retryable=True)
+        # Bound chunks by UTF-16 units without semantic transformations or truncation.
+        chunks, chunk, units = [], [], 0
+        for character in content:
+            width = utf16_len(character)
+            if units + width > 4000:
+                chunks.append("".join(chunk))
+                chunk, units = [], 0
+            chunk.append(character)
+            units += width
+        if chunk:
+            chunks.append("".join(chunk))
+        message_id = None
+        async with self._chat_send_lock(chat_id):
+            try:
+                for text in chunks:
+                    kwargs = {"chat_id": normalize_telegram_chat_id(chat_id), "text": text,
+                              "parse_mode": None, "disable_web_page_preview": True}
+                    if thread_id is not None:
+                        kwargs["message_thread_id"] = int(thread_id)
+                    if reply_to is not None:
+                        kwargs["reply_to_message_id"] = int(reply_to)
+                        kwargs["allow_sending_without_reply"] = True
+                    message = await self._bot.send_message(**kwargs)
+                    message_id = str(message.message_id)
+            except Exception:
+                # Do not retry ambiguous partial sends or disclose API error bodies.
+                return SendResult(success=False, error="Plain-text delivery failed", retryable=False)
+        return SendResult(success=True, message_id=message_id)
 
     async def send(
         self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> SendResult:
@@ -6133,6 +6172,20 @@ class TelegramAdapter(BasePlatformAdapter):
         event.text = group_trigger_text(self, msg, event.text)
         await self._cache_replied_media(msg, event)
         return self._apply_telegram_group_observe_attribution(event)
+
+    async def _handle_text_only_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Restricted ingress: no attachment downloads, reply-media cache or callback commands."""
+        msg = self._effective_update_message(update)
+        if not msg or not self._is_user_authorized_from_message(msg):
+            return
+        if not self._should_process_message(msg, is_command=False):
+            return
+        from plugins.platforms.telegram.telegram_context import group_trigger_text
+        kind = MessageType.TEXT if msg.text else MessageType.DOCUMENT
+        event = self._build_message_event(msg, kind, update_id=update.update_id)
+        event.text = group_trigger_text(self, msg, event.text)
+        event.allow_gateway_control = False
+        await self.handle_message(event)
 
     async def _handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle incoming text; buffers client-split chunks into one MessageEvent."""

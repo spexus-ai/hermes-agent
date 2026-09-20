@@ -1,3 +1,8 @@
+> **Spexus AI patched edition:** this repository adds required message gates and a
+> stateless, document-only Telegram Q&A mode. See [SPEXUS.md](SPEXUS.md) for the
+> patch scope and the companion [Jev topic-policy plugin](https://github.com/spexus-ai/hermes-jev-topic-policy)
+> with installation instructions, configuration, policy and example documents.
+
 <p align="center">
   <img src="assets/banner.png" alt="Hermes Agent" width="100%">
 </p>

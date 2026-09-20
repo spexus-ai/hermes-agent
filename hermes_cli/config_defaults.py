@@ -19,6 +19,24 @@ def _aux(timeout, *, reasoning_effort=True, **extra):
 
 
 DEFAULT_CONFIG = {
+    "message_gates": {
+        "required": {},
+        "on_error": "deny",
+        "stage_deadline_seconds": 10,
+        "templates": {},
+    },
+    "document_qa": {
+        "enabled": False,
+        "corpus_file": "documents.json",
+        "model_endpoint": "https://api.openai.com/v1/chat/completions",
+        "model": "",
+        "api_key_env": "OPENAI_API_KEY",
+        "policy_version": "",
+        "model_timeout_seconds": 45,
+        "max_concurrent": 4,
+        "requests_per_user_minute": 6,
+        "requests_per_minute": 60,
+    },
     "model": "",
     "providers": {},
     "fallback_providers": [],

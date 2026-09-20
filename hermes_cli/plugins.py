@@ -917,6 +917,27 @@ class PluginContext:
         """Register a lifecycle hook callback (unknown names warn but are still stored)."""
         return self._track_callback("hook", hook_name, callback, self._manager._hooks, VALID_HOOKS)
 
+    def register_message_gate(self, stage: str, callback: Callable) -> PluginRegistration:
+        """Register an async required gate, selected by this plugin's id in message_gates.
+
+        Unlike observer hooks, errors and invalid decisions fail closed. See agent.message_gates.
+        """
+        from agent.message_gates import STAGES
+        import inspect
+        if stage not in STAGES or not inspect.iscoroutinefunction(callback):
+            raise ValueError("Message gates require a supported stage and async callback")
+        key = (stage, self.plugin_id)
+        registry = self._manager._message_gates
+        if key in registry:
+            raise ValueError(f"Duplicate message gate: {key}")
+        registry[key] = callback
+
+        def release():
+            if registry.get(key) is callback:
+                registry.pop(key)
+
+        return self._track("message_gate", f"{stage}/{self.plugin_id}", release)
+
     def register_middleware(self, kind: str, callback: Callable) -> PluginRegistration:
         """Register behavior-changing middleware (request kinds rewrite the payload, execution kinds
         wrap the callback). Unknown kinds warn but are stored."""
@@ -1150,6 +1171,7 @@ class PluginManager(PluginLoaderMixin, PluginDispatchMixin, PluginLedgerMixin):
         # (matcher, callback, plugin_name), platform handler factories (lowercase platform -> list).
         self._plugins: Dict[str, LoadedPlugin] = {}
         self._hooks: Dict[str, List[Callable]] = {}
+        self._message_gates: Dict[Tuple[str, str], Callable] = {}
         # Fallback hooks registered by a memory provider before general discovery.
         self._memory_hook_registrations: Dict[Tuple[str, str], List[PluginRegistration]] = {}
         self._middleware: Dict[str, List[Callable]] = {}

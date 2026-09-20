@@ -1426,6 +1426,12 @@ class GatewayStartupMixin:
             return True
         if self._start_check_access_policy():
             return True
+        from gateway.document_qa import start_document_qa
+        from gateway.run import _gateway_config_home
+        from hermes_cli.config_effective import load_user_config_effective
+        if await start_document_qa(self, load_user_config_effective(
+                _gateway_config_home() / "config.yaml", fail_closed=True)):
+            return True
         await self._start_recover_previous_run()
         # The gateway is a boot owner of the Nous free tier, beside `cmd_chat` and `hermes serve`: every
         # demand-time site (provider resolution, /login, the connector token) is a read that needs the

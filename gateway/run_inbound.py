@@ -1269,6 +1269,10 @@ class GatewayInboundMixin:
         if _admitted is None:
             return None
         event, source, is_internal = _admitted
+        document_qa = getattr(self, "_document_qa", None)
+        if document_qa is not None:
+            await document_qa.handle(self, event)
+            return None
         # TERMINAL-DECLINE LATCH TEARDOWN. Deliberately placed AFTER admission,
         # not on the adapter's raw inbound: profile routing, the ignored-channel
         # guard, plugin hooks and user authorization all reject events above,
