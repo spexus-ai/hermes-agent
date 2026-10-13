@@ -74,14 +74,26 @@ _SCHEMA_MAP_KEYS = ("properties", "patternProperties", "$defs", "definitions", "
 def _repair_object_shape(node):
     """Recursively fill a missing object ``type``, ensure ``properties`` (so ``required``
     can't dangle) and prune ``required`` to names present in ``properties`` (Gemini 400s
-    otherwise)."""
+    otherwise). Discard malformed dependency hints that would reject the whole toolset."""
     if isinstance(node, list):
         return [_repair_object_shape(item) for item in node]
     if not isinstance(node, dict):
         return node
     repaired = {}
     for key, value in node.items():
-        if key in _SCHEMA_MAP_KEYS and isinstance(value, dict):
+        if key == "dependentRequired":
+            # Dependency arrays contain literal field names, never schema nodes. A bad
+            # hint cannot be reconstructed; the MCP server validates actual arguments.
+            dependencies = {
+                name: list(fields) for name, fields in value.items()
+                if isinstance(fields, list) and all(isinstance(field, str) for field in fields)
+                and len(fields) == len(set(fields))
+            } if isinstance(value, dict) else {}
+            if not isinstance(value, dict) or len(dependencies) != len(value):
+                logger.warning("MCP schema: discarded malformed dependentRequired entries")
+            if dependencies:
+                repaired[key] = dependencies
+        elif key in _SCHEMA_MAP_KEYS and isinstance(value, dict):
             # A schema map (entry name -> schema), never a schema node itself: recursing over
             # the whole map would inject a bogus ``"type": "object"`` *entry* when one of its
             # keys is literally named ``properties``/``required`` (#110530).
